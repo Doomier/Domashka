@@ -418,7 +418,7 @@ MonoBehaviour:
   _rotationSpeed: 50
   _clockwise: 1
   _distribution: 0
-  _stepAngle: 15
+  _stepAngle: 10
 --- !u!4 &638407216
 Transform:
   m_ObjectHideFlags: 0
