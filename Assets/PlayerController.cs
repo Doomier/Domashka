@@ -113,7 +113,6 @@ public class PlayerController : MonoBehaviour
 
     private void Awake()
     {
-        // Инициализация модели и UI в методе Awake
         currentDiceCount = defaultDiceCount;
         GenerateRoundConditions();
         UpdateUI();
