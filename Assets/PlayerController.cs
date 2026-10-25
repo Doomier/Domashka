@@ -1,7 +1,9 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using UnityEngine.UI;
+using UnityEngine.Events;
+using TMPro;
 
 [RequireComponent(typeof(Rigidbody))]
 public class DiceController : MonoBehaviour
@@ -80,9 +82,8 @@ public class DiceController : MonoBehaviour
 public class PlayerController : MonoBehaviour
 {
     [Header("Настройки спавна")]
-    [SerializeField] private GameObject dicePrefab; 
-    [SerializeField] private int diceCount = 3;    
-    [SerializeField] private Transform spawnPoint; 
+    [SerializeField] private GameObject dicePrefab;
+    [SerializeField] private Transform spawnPoint;
 
     [Header("Настройки броска")]
     [SerializeField] private float minForce = 5f;
@@ -90,44 +91,51 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float minTorque = 15f;
     [SerializeField] private float maxTorque = 30f;
 
-    private InputSystem_Actions inputActions;
-    private InputAction rollAction;
-    private bool isRolling = false;
+    [Header("UI Ссылки (TextMeshPro)")]
+    [SerializeField] private TextMeshProUGUI resultText;
+    [SerializeField] private TextMeshProUGUI targetScoreText;
+    [SerializeField] private TextMeshProUGUI diceCountText;
+    [SerializeField] private TMP_InputField inputDiceCount;
+
+    [Header("События (UnityEvent)")]
+    [SerializeField] private UnityEvent onRollStarted;
+    [SerializeField] private UnityEvent<int> onRollFinished;
+
+    private int defaultDiceCount = 3;
+    private int currentDiceCount;
+    private int winScoreThreshold = 12;
+    private int drawScoreThreshold = 9;
 
     private List<GameObject> spawnedDice = new List<GameObject>();
     private List<int> currentResults = new List<int>();
     private int stoppedDiceCount = 0;
+    private bool isRolling = false;
 
     private void Awake()
     {
-        inputActions = new InputSystem_Actions();
-        rollAction = inputActions.Player.Roll;
+        // Инициализация модели и UI в методе Awake
+        currentDiceCount = defaultDiceCount;
+        GenerateRoundConditions();
+        UpdateUI();
     }
 
-    private void OnEnable()
+    private void GenerateRoundConditions()
     {
-        inputActions.Enable();
-        if (rollAction != null)
-        {
-            rollAction.performed += OnRollPressed;
-        }
+        winScoreThreshold = Random.Range(10, 16);
+        drawScoreThreshold = Random.Range(7, 10);
     }
 
-    private void OnDisable()
+    public void OnRollButtonPressed()
     {
-        if (rollAction != null)
-        {
-            rollAction.performed -= OnRollPressed;
-        }
-        inputActions.Disable();
-    }
+        if (isRolling) return;
 
-    private void OnRollPressed(InputAction.CallbackContext context)
-    {
-        if (!isRolling)
+        if (inputDiceCount != null && int.TryParse(inputDiceCount.text, out int parsedCount) && parsedCount > 0)
         {
-            StartCoroutine(RollAllDiceRoutine());
+            currentDiceCount = parsedCount;
         }
+
+        onRollStarted?.Invoke();
+        StartCoroutine(RollAllDiceRoutine());
     }
 
     private IEnumerator RollAllDiceRoutine()
@@ -136,37 +144,8 @@ public class PlayerController : MonoBehaviour
         currentResults.Clear();
         stoppedDiceCount = 0;
 
-        if (spawnedDice.Count == 0)
-        {
-            for (int i = 0; i < diceCount; i++)
-            {
-                Vector3 spawnPos = spawnPoint != null
-                    ? spawnPoint.position + new Vector3(Random.Range(-0.2f, 0.2f), i * 0.2f, Random.Range(-0.2f, 0.2f))
-                    : new Vector3(0, 2f, 0);
-
-                GameObject dice = Instantiate(dicePrefab, spawnPos, Random.rotation);
-
-                if (dice.GetComponent<DiceController>() == null)
-                {
-                    dice.AddComponent<DiceController>();
-                }
-
-                spawnedDice.Add(dice);
-            }
-        }
-        else
-        {
-            foreach (var dice in spawnedDice)
-            {
-                if (dice != null)
-                {
-                    dice.transform.position = spawnPoint != null
-                        ? spawnPoint.position + new Vector3(Random.Range(-0.2f, 0.2f), 0.5f, Random.Range(-0.2f, 0.2f))
-                        : new Vector3(0, 2f, 0);
-                    dice.transform.rotation = Random.rotation;
-                }
-            }
-        }
+        GenerateRoundConditions();
+        AdjustDicePool();
 
         foreach (var diceObj in spawnedDice)
         {
@@ -189,6 +168,45 @@ public class PlayerController : MonoBehaviour
         yield return null;
     }
 
+    private void AdjustDicePool()
+    {
+        while (spawnedDice.Count > currentDiceCount)
+        {
+            GameObject objToDestroy = spawnedDice[spawnedDice.Count - 1];
+            spawnedDice.RemoveAt(spawnedDice.Count - 1);
+            if (objToDestroy != null) Destroy(objToDestroy);
+        }
+
+        for (int i = 0; i < currentDiceCount; i++)
+        {
+            Vector3 spawnPos = spawnPoint != null
+                ? spawnPoint.position + new Vector3(Random.Range(-0.2f, 0.2f), i * 0.2f, Random.Range(-0.2f, 0.2f))
+                : new Vector3(0, 2f, 0);
+
+            if (i < spawnedDice.Count)
+            {
+                if (spawnedDice[i] != null)
+                {
+                    spawnedDice[i].transform.position = spawnPos;
+                    spawnedDice[i].transform.rotation = Random.rotation;
+                }
+                else
+                {
+                    spawnedDice[i] = Instantiate(dicePrefab, spawnPos, Random.rotation);
+                }
+            }
+            else
+            {
+                GameObject dice = Instantiate(dicePrefab, spawnPos, Random.rotation);
+                if (dice.GetComponent<DiceController>() == null)
+                {
+                    dice.AddComponent<DiceController>();
+                }
+                spawnedDice.Add(dice);
+            }
+        }
+    }
+
     private void OnAllDiceStopped()
     {
         int totalSum = 0;
@@ -197,7 +215,34 @@ public class PlayerController : MonoBehaviour
             totalSum += val;
         }
 
-        Debug.Log($"Все кубики остановились! Результаты: [{string.Join(", ", currentResults)}]. Сумма: {totalSum}");
+        string status = "";
+        if (totalSum >= winScoreThreshold)
+            status = "ПОБЕДА!";
+        else if (totalSum >= drawScoreThreshold)
+            status = "НИЧЬЯ";
+        else
+            status = "ПОРАЖЕНИЕ";
+
+        if (resultText != null)
+        {
+            resultText.text = $"Сумма: {totalSum} ({status})\nКости: [{string.Join(", ", currentResults)}]";
+        }
+
+        UpdateUI();
+        onRollFinished?.Invoke(totalSum);
         isRolling = false;
+    }
+
+    private void UpdateUI()
+    {
+        if (diceCountText != null)
+        {
+            diceCountText.text = $"Число кубиков: {currentDiceCount}";
+        }
+
+        if (targetScoreText != null)
+        {
+            targetScoreText.text = $"Цели раунда:\n• Победа: от {winScoreThreshold}\n• Ничья: от {drawScoreThreshold}";
+        }
     }
 }
